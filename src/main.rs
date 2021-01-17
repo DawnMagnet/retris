@@ -1,7 +1,7 @@
 #![allow(dead_code)]
-extern crate getch;
+pub mod getch;
+use getch::Getch;
 
-use getch::*;
 struct FrameWork {
     height: usize,
     width: usize,
@@ -121,11 +121,22 @@ impl InterFace {
 }
 
 fn main() {
+    let stdin = Getch::new();
+    let mut chars = vec![];
     loop {
-        let ch: char = Getch::new().getch().unwrap().into();
-        match ch {
-            'q' => break,
-            _ => println!("{}", ch),
+        let chu = stdin.getch();
+        if chu == 'q' as u8 {
+            println!("Are you sure to quit?y/n :");
+            let ch: char = stdin.getch().into();
+            if ch == 'y' {
+                println!("These are chars you had already put in:\n{:?}", chars);
+                return;
+            } else {
+                println!("Back to game.");
+            }
+        } else {
+            chars.push(chu);
+            println!("{} ", chu);
         }
     }
 }
