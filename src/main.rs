@@ -1,7 +1,14 @@
 #![allow(dead_code)]
 pub mod getch;
 use getch::Getch;
-
+fn clear() {
+    println!("\x1b[2J\x1b[H"); // 清屏(clear)
+}
+enum GameState {
+    Stopped,
+    Playing,
+    Pausing,
+}
 struct FrameWork {
     height: usize,
     width: usize,
@@ -63,7 +70,7 @@ impl FrameWork {
     }
     fn get_vec(&self) -> Vec<Vec<char>> {
         let vs = [
-            ' ', '上', '下', '║', '左', '╚', '╔', '╠', '右', '╝', '╗', '╣', '═', '╩', '╦', '╬',
+            '█', '上', '下', '║', '左', '╚', '╔', '╠', '右', '╝', '╗', '╣', '═', '╩', '╦', '╬',
         ];
         let mut ret = vec![];
         for s in self.stringify.iter() {
@@ -73,7 +80,6 @@ impl FrameWork {
     }
 }
 struct InterFace {
-    tetrises: [[bool; 10]; 50],
     interface: Vec<Vec<char>>,
     width: usize,
     height: usize,
@@ -81,7 +87,6 @@ struct InterFace {
 impl InterFace {
     fn new() -> Self {
         let mut temp = InterFace {
-            tetrises: [[false; 10]; 50],
             width: 70,
             height: 30,
             interface: vec![],
@@ -114,29 +119,46 @@ impl InterFace {
             print!("\n");
         }
     }
-    fn clear(&self) {
-        println!("\x1b[2J\x1b[H"); // 清屏(clear)
-    }
-    // fn draw_tetris()
 }
-
-fn main() {
-    let stdin = Getch::new();
-    let mut chars = vec![];
-    loop {
-        let chu = stdin.getch();
-        if chu == 'q' as u8 {
-            println!("Are you sure to quit?y/n :");
-            let ch: char = stdin.getch().into();
-            if ch == 'y' {
-                println!("These are chars you had already put in:\n{:?}", chars);
-                return;
-            } else {
-                println!("Back to game.");
-            }
-        } else {
-            chars.push(chu);
-            println!("{} ", chu);
+struct Game {
+    state: GameState,
+    interface: InterFace,
+    blockes: [[bool; 10]; 50],
+}
+impl Game {
+    fn new() -> Self {
+        Game {
+            state: GameState::Stopped,
+            interface: InterFace::new(),
+            blockes: [[false; 10]; 50],
         }
     }
+    fn hook(&self) {
+        let stdin = Getch::new();
+        let mut chars = vec![];
+        loop {
+            let chu = stdin.getch();
+            if chu == 'q' as u8 {
+                println!("Are you sure to quit?y/n :");
+                let ch: char = stdin.getch().into();
+                if ch == 'y' {
+                    println!("These are chars you had already put in:\n{:?}", chars);
+                    return;
+                } else {
+                    println!("Back to game.");
+                }
+            } else {
+                chars.push(chu);
+                println!("{} ", chu);
+            }
+        }
+    }
+    fn start(&mut self) {
+        clear();
+        self.interface.show_frame();
+    }
+}
+fn main() {
+    let mut game = Game::new();
+    game.start();
 }
