@@ -3,7 +3,7 @@ use crossterm::{
     cursor::MoveTo,
     event::{read, Event, KeyCode},
     execute,
-    terminal::{Clear, ClearType},
+    terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType},
     //screen::RawScreen,
     Result,
 };
@@ -339,6 +339,7 @@ static mut GAME: Game = Game {
     scores: 0,
 };
 fn main() -> Result<()> {
+    enable_raw_mode()?;
     fn trans() {
         if unsafe { GAME.state.clone() } == GameState::Playing {
             unsafe {
@@ -408,5 +409,6 @@ fn main() -> Result<()> {
             }
         }
     }
+    disable_raw_mode()?;
     Ok(())
 }
