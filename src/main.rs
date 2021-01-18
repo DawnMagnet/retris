@@ -108,7 +108,7 @@ impl FrameWork {
         ret
     }
 }
-fn write(interface: &mut Vec<Vec<char>>, left: usize, top: usize, words: &'static str) {
+fn write(interface: &mut Vec<Vec<char>>, left: usize, top: usize, words: String) {
     assert!(left + words.len() < interface[0].len());
     for (i, ch) in words.chars().enumerate() {
         interface[top][i + left] = ch;
@@ -131,17 +131,29 @@ impl InterFace {
         frame.rdraw(6, 27, 9, 30);
         frame.rdraw(4, 12, 48, 61);
         temp.interface = frame.get_vec();
-        write(&mut temp.interface, 49, 2, "Next Tetris");
-        write(&mut temp.interface, 43, 14, "Operations:");
-        write(&mut temp.interface, 43, 16, "space:");
-        write(&mut temp.interface, 47, 17, "pause the game");
-        write(&mut temp.interface, 43, 18, "q:");
-        write(&mut temp.interface, 47, 19, "quit the game");
-        write(&mut temp.interface, 43, 20, "↑↓←→:");
-        write(&mut temp.interface, 47, 21, "control the tertris");
+        write(&mut temp.interface, 49, 2, "Next Tetris".to_string());
+        write(&mut temp.interface, 43, 14, "Operations:".to_string());
+        write(&mut temp.interface, 43, 16, "space:".to_string());
+        write(&mut temp.interface, 47, 17, "pause the game".to_string());
+        write(&mut temp.interface, 43, 18, "q:".to_string());
+        write(&mut temp.interface, 47, 19, "quit the game".to_string());
+        write(&mut temp.interface, 43, 20, "↑↓←→:".to_string());
+        write(
+            &mut temp.interface,
+            47,
+            21,
+            "control the tertris".to_string(),
+        );
         temp
     }
-    fn show_frame(&self, t: &Tetris, next: &Tetris, blockes: &[[u8; 10]; 20], state: &GameState) {
+    fn show_frame(
+        &self,
+        t: &Tetris,
+        next: &Tetris,
+        blockes: &[[u8; 10]; 20],
+        state: &GameState,
+        scores: u128,
+    ) {
         clear();
         let mut interface = self.interface.clone();
         for points in &TETRISES[t.kind][2..] {
@@ -165,14 +177,16 @@ impl InterFace {
         }
         write(
             &mut interface,
-            47,
-            28,
+            17,
+            5,
             match state {
                 GameState::Playing => "Playing",
-                GameState::Stopped => "Stopped",
+                GameState::Stopped => "You loose!",
                 GameState::Pausing => "Pausing",
-            },
+            }
+            .to_string(),
         );
+        write(&mut interface, 16, 3, format!("Scores: {}", scores));
         for line in interface {
             for ch in line {
                 print!("{}", ch);
@@ -210,6 +224,7 @@ struct Game {
     blockes: [[u8; 10]; 20],
     curter: Tetris,
     nxtter: Tetris,
+    scores: u128,
 }
 impl Game {
     fn new() -> Self {
@@ -219,6 +234,7 @@ impl Game {
             blockes: [[0; 10]; 20],
             curter: Tetris::new(),
             nxtter: Tetris::new(),
+            scores: 0,
         }
     }
     fn down(&mut self) {
@@ -234,13 +250,29 @@ impl Game {
         if bottom {
             for points in &TETRISES[self.curter.kind][2..] {
                 let (xt, yt) = xt_yt(points, &self.curter);
-                println!("{} {} ", xt, yt);
                 if xt < 0 || yt < 0 {
                     self.state = GameState::Stopped;
                     self.show_all();
                     return;
                 }
                 self.blockes[xt as usize][yt as usize] = 1;
+            }
+            let mut cleanpath = 0;
+            for x in 0..20 {
+                let mut filled = true;
+                for y in 0..10 {
+                    filled = filled & (self.blockes[x][y] != 0);
+                }
+                if filled {
+                    cleanpath += 1;
+                    for i in (1..=x).rev() {
+                        self.blockes[i] = self.blockes[i - 1];
+                    }
+                    self.blockes[0] = [0; 10];
+                }
+            }
+            if cleanpath > 0 {
+                self.scores += 20u128.pow(cleanpath);
             }
             std::mem::swap(&mut self.curter, &mut self.nxtter);
             self.nxtter = Tetris::new();
@@ -273,8 +305,13 @@ impl Game {
         }
     }
     fn show_all(&self) {
-        self.interface
-            .show_frame(&self.curter, &self.nxtter, &self.blockes, &self.state);
+        self.interface.show_frame(
+            &self.curter,
+            &self.nxtter,
+            &self.blockes,
+            &self.state,
+            self.scores,
+        );
     }
 }
 lazy_static! {
@@ -299,6 +336,7 @@ static mut GAME: Game = Game {
         position: [-2, 5],
         direc: 0 as usize,
     },
+    scores: 0,
 };
 fn main() -> Result<()> {
     fn trans() {
