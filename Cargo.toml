@@ -1,15 +1,12 @@
 [package]
 name = "retris"
-version = "0.1.0"
+version = "0.0.1"
 authors = ["DawnMagnet <axccjqh@qq.com>"]
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ansi_term = "0.12"
-[build-dependencies]
-[target."cfg(unix)".dependencies.termios]
-version = "0.2"
-[target."cfg(windows)".dependencies.libc]
-version = "0.2"
+crossterm = "*"
+rand = "*"
+lazy_static = "*"

@@ -1,13 +1,53 @@
-#![allow(dead_code)]
-pub mod getch;
-use getch::Getch;
+extern crate rand;
+use crossterm::{
+    cursor::MoveTo,
+    event::{read, Event, KeyCode},
+    execute,
+    terminal::{Clear, ClearType},
+    //screen::RawScreen,
+    Result,
+};
+use lazy_static::lazy_static;
+use std::io::stdout;
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 fn clear() {
-    println!("\x1b[2J\x1b[H"); // 清屏(clear)
+    let _t = execute!(stdout(), MoveTo(0, 0));
 }
+const TETRISES: [[[i32; 2]; 6]; 7] = [
+    // ? 数据格式：前两个为[x上限下限]，[y上限下限]，后面余下的为相对于旋转中心的坐标
+    [[1, 0], [1, -1], [0, 0], [0, -1], [0, 1], [1, 0]], // T
+    [[1, 0], [1, -1], [0, 0], [0, 1], [1, 0], [1, -1]], // S
+    [[1, 0], [1, -1], [0, 0], [0, -1], [1, 0], [1, 1]], // Z
+    [[1, -1], [0, -1], [0, 0], [-1, 0], [1, 0], [1, -1]], // J
+    [[1, -1], [0, 1], [0, 0], [-1, 0], [1, 0], [1, 1]], // L
+    [[1, -2], [0, 0], [0, 0], [-1, 0], [1, 0], [-2, 0]], // I
+    [[1, 0], [1, 0], [0, 0], [1, 0], [0, 1], [1, 1]],   // O
+];
+#[derive(PartialEq, Clone)]
 enum GameState {
     Stopped,
     Playing,
     Pausing,
+}
+fn xt_yt(points: &[i32; 2], t: &Tetris) -> (i32, i32) {
+    (
+        t.position[0] as i32
+            + match t.direc {
+                0 => points[0],
+                1 => -points[1],
+                2 => -points[0],
+                _ => points[1],
+            } as i32,
+        t.position[1] as i32
+            + match t.direc {
+                0 => points[1],
+                1 => points[0],
+                2 => -points[1],
+                _ => -points[0],
+            } as i32,
+    )
 }
 struct FrameWork {
     height: usize,
@@ -57,26 +97,21 @@ impl FrameWork {
             x + width,
         );
     }
-    fn get_string(&self) -> String {
-        let vs = [
-            ' ', '上', '下', '║', '左', '╚', '╔', '╠', '右', '╝', '╗', '╣', '═', '╩', '╦', '╬',
-        ];
-        let mut ret = String::new();
-        for s in self.stringify.iter() {
-            ret.push_str(&s.iter().map(|&x| vs[x]).collect::<String>());
-            ret.push('\n');
-        }
-        ret
-    }
     fn get_vec(&self) -> Vec<Vec<char>> {
         let vs = [
-            '█', '上', '下', '║', '左', '╚', '╔', '╠', '右', '╝', '╗', '╣', '═', '╩', '╦', '╬',
+            ' ', '上', '下', '║', '左', '╚', '╔', '╠', '右', '╝', '╗', '╣', '═', '╩', '╦', '╬',
         ];
         let mut ret = vec![];
         for s in self.stringify.iter() {
             ret.push(s.iter().map(|&x| vs[x]).collect::<Vec<char>>());
         }
         ret
+    }
+}
+fn write(interface: &mut Vec<Vec<char>>, left: usize, top: usize, words: &'static str) {
+    assert!(left + words.len() < interface[0].len());
+    for (i, ch) in words.chars().enumerate() {
+        interface[top][i + left] = ch;
     }
 }
 struct InterFace {
@@ -92,27 +127,53 @@ impl InterFace {
             interface: vec![],
         };
         let mut frame = FrameWork::new(temp.height, temp.width);
-        frame.rdraw(0, 29, 0, 40);
-        frame.rdraw(4, 12, 48, 62);
+        frame.rdraw(0, 29, 0, 39);
+        frame.rdraw(6, 27, 9, 30);
+        frame.rdraw(4, 12, 48, 61);
         temp.interface = frame.get_vec();
-        temp.write(50, 2, "Next Tetris");
-        temp.write(43, 14, "Operations:");
-        temp.write(43, 16, "s:");
-        temp.write(47, 17, "pause the game");
-        temp.write(43, 18, "q:");
-        temp.write(47, 19, "quit the game");
-        temp.write(43, 20, "↑↓←→:");
-        temp.write(47, 21, "control the tertris");
+        write(&mut temp.interface, 49, 2, "Next Tetris");
+        write(&mut temp.interface, 43, 14, "Operations:");
+        write(&mut temp.interface, 43, 16, "space:");
+        write(&mut temp.interface, 47, 17, "pause the game");
+        write(&mut temp.interface, 43, 18, "q:");
+        write(&mut temp.interface, 47, 19, "quit the game");
+        write(&mut temp.interface, 43, 20, "↑↓←→:");
+        write(&mut temp.interface, 47, 21, "control the tertris");
         temp
     }
-    fn write(&mut self, left: usize, top: usize, words: &'static str) {
-        assert!(left + words.len() < self.width);
-        for (i, ch) in words.chars().enumerate() {
-            self.interface[top][i + left] = ch;
+    fn show_frame(&self, t: &Tetris, next: &Tetris, blockes: &[[u8; 10]; 20], state: &GameState) {
+        clear();
+        let mut interface = self.interface.clone();
+        for points in &TETRISES[t.kind][2..] {
+            let (xt, yt) = xt_yt(points, t);
+            if xt >= 0 && xt < 20 && yt >= 0 && yt < 10 {
+                interface[xt as usize + 7][(yt as usize) * 2 + 10] = '█';
+                interface[xt as usize + 7][(yt as usize) * 2 + 11] = '█';
+            }
         }
-    }
-    fn show_frame(&self) {
-        for line in &self.interface {
+        for points in &TETRISES[next.kind][2..] {
+            interface[(points[0] + 8) as usize][(points[1] * 2 + 54) as usize] = '█';
+            interface[(points[0] + 8) as usize][(points[1] * 2 + 55) as usize] = '█';
+        }
+        for x in 0..20 {
+            for y in 0..10 {
+                if blockes[x][y] == 1 {
+                    interface[x as usize + 7][(y as usize) * 2 + 10] = '█';
+                    interface[x as usize + 7][(y as usize) * 2 + 11] = '█';
+                }
+            }
+        }
+        write(
+            &mut interface,
+            47,
+            28,
+            match state {
+                GameState::Playing => "Playing",
+                GameState::Stopped => "Stopped",
+                GameState::Pausing => "Pausing",
+            },
+        );
+        for line in interface {
             for ch in line {
                 print!("{}", ch);
             }
@@ -120,45 +181,194 @@ impl InterFace {
         }
     }
 }
+#[derive(Clone)]
+struct Tetris {
+    pub kind: usize,        // 0-7分别表示 TSZJLIO型方块
+    pub position: [i32; 2], // 表示了在游戏中的位置
+    pub direc: usize,       // 表示了方块在游戏中的指向，0为初始方向，1-3依次顺时针旋转90°
+}
+impl Tetris {
+    fn new() -> Self {
+        Tetris {
+            kind: (rand::random::<u8>() % 7) as usize,
+            position: [-2, 5],
+            direc: (rand::random::<u8>() % 4) as usize,
+        }
+    }
+    fn turn(&mut self) {
+        self.direc += 1;
+        self.direc %= 4;
+    }
+    fn unturn(&mut self) {
+        self.direc += 3;
+        self.direc %= 4;
+    }
+}
 struct Game {
     state: GameState,
     interface: InterFace,
-    blockes: [[bool; 10]; 50],
+    blockes: [[u8; 10]; 20],
+    curter: Tetris,
+    nxtter: Tetris,
 }
 impl Game {
     fn new() -> Self {
         Game {
             state: GameState::Stopped,
             interface: InterFace::new(),
-            blockes: [[false; 10]; 50],
+            blockes: [[0; 10]; 20],
+            curter: Tetris::new(),
+            nxtter: Tetris::new(),
         }
     }
-    fn hook(&self) {
-        let stdin = Getch::new();
-        let mut chars = vec![];
-        loop {
-            let chu = stdin.getch();
-            if chu == 'q' as u8 {
-                println!("Are you sure to quit?y/n :");
-                let ch: char = stdin.getch().into();
-                if ch == 'y' {
-                    println!("These are chars you had already put in:\n{:?}", chars);
+    fn down(&mut self) {
+        let mut bottom = false;
+        for points in &TETRISES[self.curter.kind][2..] {
+            let (xt, yt) = xt_yt(points, &self.curter);
+            let xt = xt + 1;
+            if !(xt < 0 || xt < 20 && self.blockes[xt as usize][yt as usize] == 0) {
+                bottom = true;
+                break;
+            }
+        }
+        if bottom {
+            for points in &TETRISES[self.curter.kind][2..] {
+                let (xt, yt) = xt_yt(points, &self.curter);
+                println!("{} {} ", xt, yt);
+                if xt < 0 || yt < 0 {
+                    self.state = GameState::Stopped;
+                    self.show_all();
                     return;
-                } else {
-                    println!("Back to game.");
                 }
-            } else {
-                chars.push(chu);
-                println!("{} ", chu);
+                self.blockes[xt as usize][yt as usize] = 1;
+            }
+            std::mem::swap(&mut self.curter, &mut self.nxtter);
+            self.nxtter = Tetris::new();
+        } else {
+            self.curter.position[0] += 1;
+        }
+    }
+    fn vertical(&mut self, moved: i32) {
+        for points in &TETRISES[self.curter.kind][2..] {
+            let (xt, yt) = xt_yt(points, &self.curter);
+            let yt = yt + moved;
+            if (yt < 0 || yt >= 10)
+                || !(xt < 0 || xt < 20 && self.blockes[xt as usize][yt as usize] == 0)
+            {
+                return;
+            }
+        }
+        self.curter.position[1] += moved;
+    }
+    fn turn(&mut self) {
+        &self.curter.turn();
+        for points in &TETRISES[self.curter.kind][2..] {
+            let (xt, yt) = xt_yt(points, &self.curter);
+            if (yt < 0 || yt >= 10)
+                || !(xt < 0 || xt < 20 && self.blockes[xt as usize][yt as usize] == 0)
+            {
+                &self.curter.unturn();
+                return;
             }
         }
     }
-    fn start(&mut self) {
-        clear();
-        self.interface.show_frame();
+    fn show_all(&self) {
+        self.interface
+            .show_frame(&self.curter, &self.nxtter, &self.blockes, &self.state);
     }
 }
-fn main() {
-    let mut game = Game::new();
-    game.start();
+lazy_static! {
+    static ref LOCK: Arc<Mutex<usize>> = Arc::new(Mutex::new(0));
+}
+
+static mut GAME: Game = Game {
+    state: GameState::Stopped,
+    interface: InterFace {
+        width: 70,
+        height: 30,
+        interface: vec![],
+    },
+    blockes: [[0; 10]; 20],
+    curter: Tetris {
+        kind: 0,
+        position: [-2, 5],
+        direc: 0,
+    },
+    nxtter: Tetris {
+        kind: 0 as usize,
+        position: [-2, 5],
+        direc: 0 as usize,
+    },
+};
+fn main() -> Result<()> {
+    fn trans() {
+        if unsafe { GAME.state.clone() } == GameState::Playing {
+            unsafe {
+                GAME.state = GameState::Pausing;
+                GAME.show_all();
+            }
+        } else {
+            unsafe {
+                if GAME.state == GameState::Stopped {
+                    GAME = Game::new();
+                }
+                GAME.state = GameState::Playing;
+                GAME.show_all();
+            }
+            let lock_clone = LOCK.clone();
+            thread::spawn(move || loop {
+                std::thread::sleep(Duration::from_millis(1500));
+                let _guard = lock_clone.lock().unwrap();
+                unsafe {
+                    GAME.down();
+                    if GAME.state != GameState::Playing {
+                        break;
+                    }
+                    GAME.show_all();
+                }
+            });
+        }
+    }
+    let _ = execute!(stdout(), Clear(ClearType::All));
+    let lock_clone = LOCK.clone();
+    trans();
+    loop {
+        let event = read()?;
+        let _guard = lock_clone.lock().unwrap();
+        if let Event::Key(_keyevent) = event {
+            match _keyevent.code {
+                KeyCode::Char(ch) => match ch {
+                    'q' => break,
+                    ' ' => trans(),
+                    _ => (),
+                },
+                KeyCode::Up => unsafe {
+                    if GAME.state == GameState::Playing {
+                        GAME.turn();
+                        GAME.show_all();
+                    }
+                },
+                KeyCode::Down => unsafe {
+                    if GAME.state == GameState::Playing {
+                        GAME.down();
+                        GAME.show_all();
+                    }
+                },
+                KeyCode::Left => unsafe {
+                    if GAME.state == GameState::Playing {
+                        GAME.vertical(-1);
+                        GAME.show_all();
+                    }
+                },
+                KeyCode::Right => unsafe {
+                    if GAME.state == GameState::Playing {
+                        GAME.vertical(1);
+                        GAME.show_all();
+                    }
+                },
+                _ => {}
+            }
+        }
+    }
+    Ok(())
 }
