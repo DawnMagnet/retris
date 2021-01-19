@@ -1,9 +1,9 @@
 extern crate rand;
 use crossterm::{
-    cursor::MoveTo,
+    cursor::{MoveTo, Hide},
     event::{read, Event, KeyCode},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType},
+    terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
     //screen::RawScreen,
     Result,
 };
@@ -340,6 +340,8 @@ static mut GAME: Game = Game {
 };
 fn main() -> Result<()> {
     enable_raw_mode()?;
+    let mut stdout = stdout();
+    execute!(stdout, EnterAlternateScreen, Hide)?;
     fn trans() {
         if unsafe { GAME.state.clone() } == GameState::Playing {
             unsafe {
@@ -368,7 +370,7 @@ fn main() -> Result<()> {
             });
         }
     }
-    let _ = execute!(stdout(), Clear(ClearType::All));
+    let _ = execute!(stdout, Clear(ClearType::All));
     let lock_clone = LOCK.clone();
     trans();
     loop {
@@ -409,6 +411,7 @@ fn main() -> Result<()> {
             }
         }
     }
+    execute!(stdout, LeaveAlternateScreen)?;
     disable_raw_mode()?;
     Ok(())
 }
