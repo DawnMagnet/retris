@@ -4,6 +4,8 @@
 
 一个使用 rust 语言编写的俄罗斯方块
 
+[![sRuGjA.gif](https://s3.ax1x.com/2021/01/20/sRuGjA.gif)](https://imgchr.com/i/sRuGjA)
+
 ## 安装说明
 
 如果你只是想玩一玩这个小游戏,那么可以在 Release Page 直接下载  
@@ -20,7 +22,7 @@ cargo run --release
 ```
 
 本应用正在开发中，如有问题请联系本人
-axccjqh@qq.com
+<axccjqh@qq.com>
 
 ## 版本日志
 
