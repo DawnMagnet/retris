@@ -1,10 +1,9 @@
 extern crate rand;
 use crossterm::{
-    cursor::{Hide, MoveTo},
+    cursor::{position, Hide, MoveDown, MoveTo, MoveToNextLine},
     event::{read, Event, KeyCode},
     execute,
     terminal::*,
-    //screen::RawScreen,
     Result,
 };
 use lazy_static::lazy_static;
@@ -187,11 +186,13 @@ impl InterFace {
             .to_string(),
         );
         write(&mut interface, 16, 3, format!("Scores: {}", scores));
-        for line in interface {
-            for ch in line {
-                print!("{}", ch);
+        for (y, line) in interface.iter().enumerate() {
+            let mut s = String::new();
+            for &ch in line {
+                s.push(ch);
             }
-            let _ = write!(stdout(), "\n");
+            print!("{}", s);
+            let _ = execute!(stdout(), MoveToNextLine(1));
         }
     }
 }
