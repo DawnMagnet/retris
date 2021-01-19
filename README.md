@@ -4,7 +4,7 @@
 
 一个使用 rust 语言编写的俄罗斯方块
 
-[![sRuGjA.gif](https://s3.ax1x.com/2021/01/20/sRuGjA.gif)](https://imgchr.com/i/sRuGjA)
+[![sRuGjA.gif](https://s3.ax1x.com/2021/01/20/sRuGjA.gif)
 
 ## 安装说明
 
