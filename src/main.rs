@@ -1,19 +1,21 @@
 extern crate rand;
 use crossterm::{
-    cursor::{position, Hide, MoveDown, MoveTo, MoveToNextLine},
+    cursor::{Hide, MoveTo, MoveToNextLine},
     event::{read, Event, KeyCode},
     execute,
+    style::*,
     terminal::*,
     Result,
 };
 use lazy_static::lazy_static;
-use std::io::{stdout, Write};
+use std::io::stdout;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 fn clear() {
     let _t = execute!(stdout(), MoveTo(0, 0));
 }
+static mut COLORTURN: u8 = 8;
 const TETRISES: [[[i32; 2]; 6]; 7] = [
     // ? 数据格式：前两个为[x上限下限]，[y上限下限]，后面余下的为相对于旋转中心的坐标
     [[1, 0], [1, -1], [0, 0], [0, -1], [0, 1], [1, 0]], // T
@@ -113,6 +115,17 @@ fn write(interface: &mut Vec<Vec<char>>, left: usize, top: usize, words: String)
         interface[top][i + left] = ch;
     }
 }
+fn write_styled(
+    interface: &mut Vec<Vec<StyledContent<char>>>,
+    left: usize,
+    top: usize,
+    words: String,
+) {
+    assert!(left + words.len() < interface[0].len());
+    for (i, ch) in words.chars().enumerate() {
+        interface[top][i + left] = style(ch);
+    }
+}
 struct InterFace {
     interface: Vec<Vec<char>>,
     width: usize,
@@ -154,27 +167,40 @@ impl InterFace {
         scores: u128,
     ) {
         clear();
-        let mut interface = self.interface.clone();
+        let mut interface = vec![];
+        for lines in &self.interface {
+            let mut line = vec![];
+            for &ch in lines {
+                line.push(style(ch))
+            }
+            interface.push(line);
+        }
         for points in &TETRISES[t.kind][2..] {
             let (xt, yt) = xt_yt(points, t);
             if xt >= 0 && xt < 20 && yt >= 0 && yt < 10 {
-                interface[xt as usize + 7][(yt as usize) * 2 + 10] = '█';
-                interface[xt as usize + 7][(yt as usize) * 2 + 11] = '█';
+                interface[xt as usize + 7][(yt as usize) * 2 + 10] =
+                    style('█').with(Color::AnsiValue(t.color));
+                interface[xt as usize + 7][(yt as usize) * 2 + 11] =
+                    style('█').with(Color::AnsiValue(t.color));
             }
         }
         for points in &TETRISES[next.kind][2..] {
-            interface[(points[0] + 8) as usize][(points[1] * 2 + 54) as usize] = '█';
-            interface[(points[0] + 8) as usize][(points[1] * 2 + 55) as usize] = '█';
+            interface[(points[0] + 8) as usize][(points[1] * 2 + 54) as usize] =
+                style('█').with(Color::AnsiValue(next.color));
+            interface[(points[0] + 8) as usize][(points[1] * 2 + 55) as usize] =
+                style('█').with(Color::AnsiValue(next.color));
         }
         for x in 0..20 {
             for y in 0..10 {
-                if blockes[x][y] == 1 {
-                    interface[x as usize + 7][(y as usize) * 2 + 10] = '█';
-                    interface[x as usize + 7][(y as usize) * 2 + 11] = '█';
+                if blockes[x][y] >= 1 {
+                    interface[x as usize + 7][(y as usize) * 2 + 10] =
+                        style('█').with(Color::AnsiValue(blockes[x][y]));
+                    interface[x as usize + 7][(y as usize) * 2 + 11] =
+                        style('█').with(Color::AnsiValue(blockes[x][y]));
                 }
             }
         }
-        write(
+        write_styled(
             &mut interface,
             17,
             5,
@@ -185,13 +211,11 @@ impl InterFace {
             }
             .to_string(),
         );
-        write(&mut interface, 16, 3, format!("Scores: {}", scores));
-        for (y, line) in interface.iter().enumerate() {
-            let mut s = String::new();
+        write_styled(&mut interface, 16, 3, format!("Scores: {}", scores));
+        for line in &interface {
             for &ch in line {
-                s.push(ch);
+                print!("{}", ch);
             }
-            print!("{}", s);
             let _ = execute!(stdout(), MoveToNextLine(1));
         }
     }
@@ -201,6 +225,7 @@ struct Tetris {
     pub kind: usize,        // 0-7分别表示 TSZJLIO型方块
     pub position: [i32; 2], // 表示了在游戏中的位置
     pub direc: usize,       // 表示了方块在游戏中的指向，0为初始方向，1-3依次顺时针旋转90°
+    pub color: u8,          // 表示了方块在游戏中的颜色
 }
 impl Tetris {
     fn new() -> Self {
@@ -208,6 +233,13 @@ impl Tetris {
             kind: (rand::random::<u8>() % 7) as usize,
             position: [-2, 5],
             direc: (rand::random::<u8>() % 4) as usize,
+            color: {
+                unsafe {
+                    COLORTURN += 1;
+                    COLORTURN %= 8;
+                    COLORTURN + 1
+                }
+            },
         }
     }
     fn turn(&mut self) {
@@ -256,7 +288,7 @@ impl Game {
                     self.show_all();
                     return;
                 }
-                self.blockes[xt as usize][yt as usize] = 1;
+                self.blockes[xt as usize][yt as usize] = self.curter.color;
             }
             let mut cleanpath = 0;
             for x in 0..20 {
@@ -331,14 +363,17 @@ static mut GAME: Game = Game {
         kind: 0,
         position: [-2, 5],
         direc: 0,
+        color: 0,
     },
     nxtter: Tetris {
         kind: 0 as usize,
         position: [-2, 5],
         direc: 0 as usize,
+        color: 0,
     },
     scores: 0,
 };
+static mut THREAD_COUNT: usize = 0usize;
 fn main() -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = stdout();
@@ -358,15 +393,24 @@ fn main() -> Result<()> {
                 GAME.show_all();
             }
             let lock_clone = LOCK.clone();
-            thread::spawn(move || loop {
-                std::thread::sleep(Duration::from_millis(1500));
-                let _guard = lock_clone.lock().unwrap();
+            thread::spawn(move || {
                 unsafe {
-                    GAME.down();
-                    if GAME.state != GameState::Playing {
-                        break;
+                    if THREAD_COUNT > 0 {
+                        return;
                     }
-                    GAME.show_all();
+                    THREAD_COUNT += 1;
+                }
+                loop {
+                    std::thread::sleep(Duration::from_millis(500));
+                    let _guard = lock_clone.lock().unwrap();
+                    unsafe {
+                        if GAME.state != GameState::Playing {
+                            THREAD_COUNT -= 1;
+                            return;
+                        }
+                        GAME.down();
+                        GAME.show_all();
+                    }
                 }
             });
         }
