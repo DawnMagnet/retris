@@ -1,14 +1,14 @@
 extern crate rand;
 use crossterm::{
-    cursor::{MoveTo, Hide},
+    cursor::{Hide, MoveTo},
     event::{read, Event, KeyCode},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::*,
     //screen::RawScreen,
     Result,
 };
 use lazy_static::lazy_static;
-use std::io::stdout;
+use std::io::{stdout, Write};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -191,7 +191,7 @@ impl InterFace {
             for ch in line {
                 print!("{}", ch);
             }
-            print!("\n");
+            let _ = write!(stdout(), "\n");
         }
     }
 }
