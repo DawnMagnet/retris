@@ -2,11 +2,11 @@
 name = "retris"
 version = "0.1.0"
 authors = ["DawnMagnet <axccjqh@qq.com>"]
-edition = "2018"
+edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-crossterm = "*"
-rand = "*"
-lazy_static = "*"
+crossterm = "0.23.0"
+rand = "0.8.5"
+lazy_static = "1.4.0"

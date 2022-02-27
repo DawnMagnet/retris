@@ -1,5 +1,4 @@
-extern crate rand;
-
+#![deny(unsafe_code)]
 use crossterm::{
     cursor::{Hide, MoveTo, MoveToNextLine},
     event::{read, Event, KeyCode},
@@ -10,6 +9,7 @@ use crossterm::{
 };
 use lazy_static::lazy_static;
 use std::io::stdout;
+use std::process::exit;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -18,8 +18,132 @@ fn clear() {
     let _t = execute!(stdout(), MoveTo(0, 0));
 }
 
-static mut COLORTURN: u8 = 8;
-const TETRISES: [[[i32; 2]; 6]; 7] = [
+struct Game {
+    state: GameState,
+    interface: InterFace,
+    blockes: [[u8; 10]; 20],
+    curter: Tetris,
+    nxtter: Tetris,
+    scores: u128,
+}
+
+impl Game {
+    fn new() -> Self {
+        Game {
+            state: GameState::Stopped,
+            interface: InterFace::new(),
+            blockes: [[0; 10]; 20],
+            curter: Tetris::new(),
+            nxtter: Tetris::new(),
+            scores: 0,
+        }
+    }
+    fn down(&mut self) {
+        let mut bottom = false;
+        for points in &TETRIS[self.curter.kind][2..] {
+            let (xt, yt) = xt_yt(points, &self.curter);
+            let xt = xt + 1;
+            if !(xt < 0 || xt < 20 && self.blockes[xt as usize][yt as usize] == 0) {
+                bottom = true;
+                break;
+            }
+        }
+        if bottom {
+            for points in &TETRIS[self.curter.kind][2..] {
+                let (xt, yt) = xt_yt(points, &self.curter);
+                if xt < 0 || yt < 0 {
+                    self.state = GameState::Stopped;
+                    self.show_all();
+                    return;
+                }
+                self.blockes[xt as usize][yt as usize] = self.curter.color;
+            }
+            let mut cleanpath = 0;
+            for x in 0..20 {
+                let mut filled = true;
+                for y in 0..10 {
+                    filled = filled & (self.blockes[x][y] != 0);
+                }
+                if filled {
+                    cleanpath += 1;
+                    for i in (1..=x).rev() {
+                        self.blockes[i] = self.blockes[i - 1];
+                    }
+                    self.blockes[0] = [0; 10];
+                }
+            }
+            if cleanpath > 0 {
+                self.scores += 20u128.pow(cleanpath);
+            }
+            std::mem::swap(&mut self.curter, &mut self.nxtter);
+            self.nxtter = Tetris::new();
+        } else {
+            self.curter.position[0] += 1;
+        }
+    }
+    fn vertical(&mut self, moved: i32) {
+        for points in &TETRIS[self.curter.kind][2..] {
+            let (xt, yt) = xt_yt(points, &self.curter);
+            let yt = yt + moved;
+            if (yt < 0 || yt >= 10)
+                || !(xt < 0 || xt < 20 && self.blockes[xt as usize][yt as usize] == 0)
+            {
+                return;
+            }
+        }
+        self.curter.position[1] += moved;
+    }
+    fn turn(&mut self) {
+        let _ = &self.curter.turn_right();
+        for points in &TETRIS[self.curter.kind][2..] {
+            let (xt, yt) = xt_yt(points, &self.curter);
+            if (yt < 0 || yt >= 10)
+                || !(xt < 0 || xt < 20 && self.blockes[xt as usize][yt as usize] == 0)
+            {
+                let _ = &self.curter.turn_left();
+                return;
+            }
+        }
+    }
+    fn show_all(&self) {
+        self.interface.show_frame(
+            &self.curter,
+            &self.nxtter,
+            &self.blockes,
+            &self.state,
+            self.scores,
+        );
+    }
+}
+
+lazy_static! {
+    static ref LOCK: Arc<Mutex<usize>> = Arc::new(Mutex::new(0));
+    static ref COLORTURN: Arc<Mutex<u8>> = Arc::new(Mutex::new(8));
+    static ref THREAD_COUNT: Arc<Mutex<usize>> = Arc::new(Mutex::new(0));
+    static ref GAME: Arc<Mutex<Game>> = Arc::new(Mutex::new(Game {
+        state: GameState::Stopped,
+        interface: InterFace {
+            width: 70,
+            height: 30,
+            interface: vec![],
+        },
+        blockes: [[0; 10]; 20],
+        curter: Tetris {
+            kind: 0,
+            position: [-2, 5],
+            direc: 0,
+            color: 0,
+        },
+        nxtter: Tetris {
+            kind: 0 as usize,
+            position: [-2, 5],
+            direc: 0 as usize,
+            color: 0,
+        },
+        scores: 0,
+    }));
+}
+const TETRIS: [[[i32; 2]; 6]; 7] = [
     // ? 数据格式：前两个为[x上限下限]，[y上限下限]，后面余下的为相对于旋转中心的坐标
     [[1, 0], [1, -1], [0, 0], [0, -1], [0, 1], [1, 0]], // T
     [[1, 0], [1, -1], [0, 0], [0, 1], [1, 0], [1, -1]], // S
@@ -41,18 +165,18 @@ fn xt_yt(points: &[i32; 2], t: &Tetris) -> (i32, i32) {
     (
         t.position[0] as i32
             + match t.direc {
-            0 => points[0],
-            1 => -points[1],
-            2 => -points[0],
-            _ => points[1],
-        } as i32,
+                0 => points[0],
+                1 => -points[1],
+                2 => -points[0],
+                _ => points[1],
+            } as i32,
         t.position[1] as i32
             + match t.direc {
-            0 => points[1],
-            1 => points[0],
-            2 => -points[1],
-            _ => -points[0],
-        } as i32,
+                0 => points[1],
+                1 => points[0],
+                2 => -points[1],
+                _ => -points[0],
+            } as i32,
     )
 }
 
@@ -186,7 +310,7 @@ impl InterFace {
             }
             interface.push(line);
         }
-        for points in &TETRISES[t.kind][2..] {
+        for points in &TETRIS[t.kind][2..] {
             let (xt, yt) = xt_yt(points, t);
             if xt >= 0 && xt < 20 && yt >= 0 && yt < 10 {
                 interface[xt as usize + 7][(yt as usize) * 2 + 10] =
@@ -195,7 +319,7 @@ impl InterFace {
                     style('█').with(Color::AnsiValue(t.color));
             }
         }
-        for points in &TETRISES[next.kind][2..] {
+        for points in &TETRIS[next.kind][2..] {
             interface[(points[0] + 8) as usize][(points[1] * 2 + 54) as usize] =
                 style('█').with(Color::AnsiValue(next.color));
             interface[(points[0] + 8) as usize][(points[1] * 2 + 55) as usize] =
@@ -220,7 +344,7 @@ impl InterFace {
                 GameState::Stopped => "You loose!",
                 GameState::Pausing => "Pausing",
             }
-                .to_string(),
+            .to_string(),
         );
         write_styled(&mut interface, 16, 3, format!("Scores: {}", scores));
         for line in &interface {
@@ -240,7 +364,7 @@ struct Tetris {
     // 表示了在游戏中的位置
     pub direc: usize,
     // 表示了方块在游戏中的指向，0为初始方向，1-3依次顺时针旋转90°
-    pub color: u8,          // 表示了方块在游戏中的颜色
+    pub color: u8, // 表示了方块在游戏中的颜色
 }
 
 impl Tetris {
@@ -250,196 +374,66 @@ impl Tetris {
             position: [-2, 5],
             direc: (rand::random::<u8>() % 4) as usize,
             color: {
-                unsafe {
-                    COLORTURN += 1;
-                    COLORTURN %= 8;
-                    COLORTURN + 1
-                }
+                let mut color_turn_lock = COLORTURN.lock().unwrap();
+                *color_turn_lock = (*color_turn_lock + 1) % 8;
+                *color_turn_lock + 1
             },
         }
     }
-    fn turn(&mut self) {
+    fn turn_right(&mut self) {
         self.direc += 1;
         self.direc %= 4;
     }
-    fn unturn(&mut self) {
+    fn turn_left(&mut self) {
         self.direc += 3;
         self.direc %= 4;
     }
 }
 
-struct Game {
-    state: GameState,
-    interface: InterFace,
-    blockes: [[u8; 10]; 20],
-    curter: Tetris,
-    nxtter: Tetris,
-    scores: u128,
-}
-
-impl Game {
-    fn new() -> Self {
-        Game {
-            state: GameState::Stopped,
-            interface: InterFace::new(),
-            blockes: [[0; 10]; 20],
-            curter: Tetris::new(),
-            nxtter: Tetris::new(),
-            scores: 0,
-        }
-    }
-    fn down(&mut self) {
-        let mut bottom = false;
-        for points in &TETRISES[self.curter.kind][2..] {
-            let (xt, yt) = xt_yt(points, &self.curter);
-            let xt = xt + 1;
-            if !(xt < 0 || xt < 20 && self.blockes[xt as usize][yt as usize] == 0) {
-                bottom = true;
-                break;
-            }
-        }
-        if bottom {
-            for points in &TETRISES[self.curter.kind][2..] {
-                let (xt, yt) = xt_yt(points, &self.curter);
-                if xt < 0 || yt < 0 {
-                    self.state = GameState::Stopped;
-                    self.show_all();
-                    return;
-                }
-                self.blockes[xt as usize][yt as usize] = self.curter.color;
-            }
-            let mut cleanpath = 0;
-            for x in 0..20 {
-                let mut filled = true;
-                for y in 0..10 {
-                    filled = filled & (self.blockes[x][y] != 0);
-                }
-                if filled {
-                    cleanpath += 1;
-                    for i in (1..=x).rev() {
-                        self.blockes[i] = self.blockes[i - 1];
-                    }
-                    self.blockes[0] = [0; 10];
-                }
-            }
-            if cleanpath > 0 {
-                self.scores += 20u128.pow(cleanpath);
-            }
-            std::mem::swap(&mut self.curter, &mut self.nxtter);
-            self.nxtter = Tetris::new();
-        } else {
-            self.curter.position[0] += 1;
-        }
-    }
-    fn vertical(&mut self, moved: i32) {
-        for points in &TETRISES[self.curter.kind][2..] {
-            let (xt, yt) = xt_yt(points, &self.curter);
-            let yt = yt + moved;
-            if (yt < 0 || yt >= 10)
-                || !(xt < 0 || xt < 20 && self.blockes[xt as usize][yt as usize] == 0)
-            {
-                return;
-            }
-        }
-        self.curter.position[1] += moved;
-    }
-    fn turn(&mut self) {
-        &self.curter.turn();
-        for points in &TETRISES[self.curter.kind][2..] {
-            let (xt, yt) = xt_yt(points, &self.curter);
-            if (yt < 0 || yt >= 10)
-                || !(xt < 0 || xt < 20 && self.blockes[xt as usize][yt as usize] == 0)
-            {
-                &self.curter.unturn();
-                return;
-            }
-        }
-    }
-    fn show_all(&self) {
-        self.interface.show_frame(
-            &self.curter,
-            &self.nxtter,
-            &self.blockes,
-            &self.state,
-            self.scores,
-        );
-    }
-}
-lazy_static! {
-    static ref LOCK: Arc<Mutex<usize>> = Arc::new(Mutex::new(0));
-}
-
-static mut GAME: Game = Game {
-    state: GameState::Stopped,
-    interface: InterFace {
-        width: 70,
-        height: 30,
-        interface: vec![],
-    },
-    blockes: [[0; 10]; 20],
-    curter: Tetris {
-        kind: 0,
-        position: [-2, 5],
-        direc: 0,
-        color: 0,
-    },
-    nxtter: Tetris {
-        kind: 0 as usize,
-        position: [-2, 5],
-        direc: 0 as usize,
-        color: 0,
-    },
-    scores: 0,
-};
-static mut THREAD_COUNT: usize = 0usize;
-
 fn main() -> Result<()> {
-    enable_raw_mode()?;
+    if let Err(_) = enable_raw_mode() {
+        println!("Your terminal does not support raw mode, please try another terminal or visit https://docs.rs/crossterm/0.23.0/crossterm/terminal/#raw-mode for more help.\
+        Please Not Run This Program Directly in CLion/Intellij IDEA 's Run Tag!");
+        exit(0);
+    }
     let mut stdout = stdout();
     execute!(stdout, EnterAlternateScreen, Hide)?;
     fn trans() {
-        if unsafe { GAME.state.clone() } == GameState::Playing {
-            unsafe {
-                GAME.state = GameState::Pausing;
-                GAME.show_all();
-            }
-        } else {
-            unsafe {
-                if GAME.state == GameState::Stopped {
-                    GAME = Game::new();
+        let mut begin_new_thread = false;
+        {
+            let mut game_lock = GAME.lock().unwrap();
+            if game_lock.state == GameState::Playing {
+                game_lock.state = GameState::Pausing;
+                game_lock.show_all();
+            } else {
+                if game_lock.state == GameState::Stopped {
+                    *game_lock = Game::new();
                 }
-                GAME.state = GameState::Playing;
-                GAME.show_all();
+                game_lock.state = GameState::Playing;
+                game_lock.show_all();
+                begin_new_thread = true
             }
-            let lock_clone = LOCK.clone();
+        }
+        if begin_new_thread {
             thread::spawn(move || {
-                unsafe {
-                    if THREAD_COUNT > 0 {
-                        return;
-                    }
-                    THREAD_COUNT += 1;
-                }
+                let _thread_holder = THREAD_COUNT.lock().unwrap();
                 loop {
                     std::thread::sleep(Duration::from_millis(500));
-                    let _guard = lock_clone.lock().unwrap();
-                    unsafe {
-                        if GAME.state != GameState::Playing {
-                            THREAD_COUNT -= 1;
-                            return;
-                        }
-                        GAME.down();
-                        GAME.show_all();
+                    let mut game_lock = GAME.lock().unwrap();
+                    if game_lock.state != GameState::Playing {
+                        return;
                     }
+                    game_lock.down();
+                    game_lock.show_all();
                 }
             });
         }
+
     }
     let _ = execute!(stdout, Clear(ClearType::All));
-    let lock_clone = LOCK.clone();
     trans();
     loop {
         let event = read()?;
-        let _guard = lock_clone.lock().unwrap();
         if let Event::Key(_keyevent) = event {
             match _keyevent.code {
                 KeyCode::Char(ch) => match ch {
@@ -447,30 +441,34 @@ fn main() -> Result<()> {
                     ' ' => trans(),
                     _ => (),
                 },
-                KeyCode::Up => unsafe {
-                    if GAME.state == GameState::Playing {
-                        GAME.turn();
-                        GAME.show_all();
+                KeyCode::Up => {
+                    let mut game_lock = GAME.lock().unwrap();
+                    if game_lock.state == GameState::Playing {
+                        game_lock.turn();
+                        game_lock.show_all();
                     }
-                },
-                KeyCode::Down => unsafe {
-                    if GAME.state == GameState::Playing {
-                        GAME.down();
-                        GAME.show_all();
+                }
+                KeyCode::Down => {
+                    let mut game_lock = GAME.lock().unwrap();
+                    if game_lock.state == GameState::Playing {
+                        game_lock.down();
+                        game_lock.show_all();
                     }
-                },
-                KeyCode::Left => unsafe {
-                    if GAME.state == GameState::Playing {
-                        GAME.vertical(-1);
-                        GAME.show_all();
+                }
+                KeyCode::Left => {
+                    let mut game_lock = GAME.lock().unwrap();
+                    if game_lock.state == GameState::Playing {
+                        game_lock.vertical(-1);
+                        game_lock.show_all();
                     }
-                },
-                KeyCode::Right => unsafe {
-                    if GAME.state == GameState::Playing {
-                        GAME.vertical(1);
-                        GAME.show_all();
+                }
+                KeyCode::Right => {
+                    let mut game_lock = GAME.lock().unwrap();
+                    if game_lock.state == GameState::Playing {
+                        game_lock.vertical(1);
+                        game_lock.show_all();
                     }
-                },
+                }
                 _ => {}
             }
         }
