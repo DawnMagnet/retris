@@ -1,4 +1,5 @@
 extern crate rand;
+
 use crossterm::{
     cursor::{Hide, MoveTo, MoveToNextLine},
     event::{read, Event, KeyCode},
@@ -12,9 +13,11 @@ use std::io::stdout;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+
 fn clear() {
     let _t = execute!(stdout(), MoveTo(0, 0));
 }
+
 static mut COLORTURN: u8 = 8;
 const TETRISES: [[[i32; 2]; 6]; 7] = [
     // ? 数据格式：前两个为[x上限下限]，[y上限下限]，后面余下的为相对于旋转中心的坐标
@@ -26,35 +29,39 @@ const TETRISES: [[[i32; 2]; 6]; 7] = [
     [[1, -2], [0, 0], [0, 0], [-1, 0], [1, 0], [-2, 0]], // I
     [[1, 0], [1, 0], [0, 0], [1, 0], [0, 1], [1, 1]],   // O
 ];
+
 #[derive(PartialEq, Clone)]
 enum GameState {
     Stopped,
     Playing,
     Pausing,
 }
+
 fn xt_yt(points: &[i32; 2], t: &Tetris) -> (i32, i32) {
     (
         t.position[0] as i32
             + match t.direc {
-                0 => points[0],
-                1 => -points[1],
-                2 => -points[0],
-                _ => points[1],
-            } as i32,
+            0 => points[0],
+            1 => -points[1],
+            2 => -points[0],
+            _ => points[1],
+        } as i32,
         t.position[1] as i32
             + match t.direc {
-                0 => points[1],
-                1 => points[0],
-                2 => -points[1],
-                _ => -points[0],
-            } as i32,
+            0 => points[1],
+            1 => points[0],
+            2 => -points[1],
+            _ => -points[0],
+        } as i32,
     )
 }
+
 struct FrameWork {
     height: usize,
     width: usize,
     stringify: Vec<Vec<usize>>,
 }
+
 impl FrameWork {
     fn new(horizontal: usize, vertical: usize) -> Self {
         let mut temp = FrameWork {
@@ -109,12 +116,14 @@ impl FrameWork {
         ret
     }
 }
+
 fn write(interface: &mut Vec<Vec<char>>, left: usize, top: usize, words: String) {
     assert!(left + words.len() < interface[0].len());
     for (i, ch) in words.chars().enumerate() {
         interface[top][i + left] = ch;
     }
 }
+
 fn write_styled(
     interface: &mut Vec<Vec<StyledContent<char>>>,
     left: usize,
@@ -126,11 +135,13 @@ fn write_styled(
         interface[top][i + left] = style(ch);
     }
 }
+
 struct InterFace {
     interface: Vec<Vec<char>>,
     width: usize,
     height: usize,
 }
+
 impl InterFace {
     fn new() -> Self {
         let mut temp = InterFace {
@@ -209,7 +220,7 @@ impl InterFace {
                 GameState::Stopped => "You loose!",
                 GameState::Pausing => "Pausing",
             }
-            .to_string(),
+                .to_string(),
         );
         write_styled(&mut interface, 16, 3, format!("Scores: {}", scores));
         for line in &interface {
@@ -220,13 +231,18 @@ impl InterFace {
         }
     }
 }
+
 #[derive(Clone)]
 struct Tetris {
-    pub kind: usize,        // 0-7分别表示 TSZJLIO型方块
-    pub position: [i32; 2], // 表示了在游戏中的位置
-    pub direc: usize,       // 表示了方块在游戏中的指向，0为初始方向，1-3依次顺时针旋转90°
+    pub kind: usize,
+    // 0-7分别表示 TSZJLIO型方块
+    pub position: [i32; 2],
+    // 表示了在游戏中的位置
+    pub direc: usize,
+    // 表示了方块在游戏中的指向，0为初始方向，1-3依次顺时针旋转90°
     pub color: u8,          // 表示了方块在游戏中的颜色
 }
+
 impl Tetris {
     fn new() -> Self {
         Tetris {
@@ -251,6 +267,7 @@ impl Tetris {
         self.direc %= 4;
     }
 }
+
 struct Game {
     state: GameState,
     interface: InterFace,
@@ -259,6 +276,7 @@ struct Game {
     nxtter: Tetris,
     scores: u128,
 }
+
 impl Game {
     fn new() -> Self {
         Game {
@@ -374,6 +392,7 @@ static mut GAME: Game = Game {
     scores: 0,
 };
 static mut THREAD_COUNT: usize = 0usize;
+
 fn main() -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = stdout();
